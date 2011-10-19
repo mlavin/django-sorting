@@ -1,5 +1,4 @@
 from django import template
-from django.http import Http404
 from django.conf import settings
 
 register = template.Library()
@@ -40,6 +39,13 @@ class SortAnchorNode(template.Node):
         {% anchor name Name %} generates
         <a href="/the/current/path/?sort=name" title="Name">Name</a>
 
+    You can also use
+        {% anchor "field1,field2" Name %} to get
+        <a href="/the/current/path/?sort=field1,field2" title="Name">Name</a>
+
+        which will sort by ('field1', 'field2'). Clicking again
+        will sort by ('-field1', '-field2').
+
     """
     def __init__(self, field, title):
         self.field = field
@@ -75,7 +81,7 @@ class SortAnchorNode(template.Node):
             title = self.title
 
         valid_fields = getattr(request, 'valid_fields', [])
-        valid_fields.append(self.field)
+        valid_fields.extend(self.field.split(","))
         setattr(request, 'valid_fields', valid_fields)
         url = '%s?sort=%s%s' % (request.path, self.field, urlappend)
         return '<a href="%s" title="%s">%s</a>' % (url, self.title, title)
@@ -101,13 +107,21 @@ class SortedDataNode(template.Node):
         value = self.queryset_var.resolve(context)
         request = context['request']
         order_by = request.field
+        if order_by.startswith("-"):
+            direction = "-"
+            order_by = order_by.lstrip("-")
+        else:
+            direction = ""
+        sort_fields = order_by.split(",")
         valid_fields = getattr(request, 'valid_fields', [])
         # Valid fields are now defined by using the sort anchors
         # This means they must come before the auto-sort node  
-        if len(order_by) > 1 and order_by.lstrip('-') in valid_fields:
-            context[key] = value.order_by(order_by)
+        for field in sort_fields:
+            if field not in valid_fields:
+                context[key] = value
+                break
         else:
-            context[key] = value
+            context[key] = value.order_by(*["%s%s" % (direction, x) for x in sort_fields])
         return ''
 
 
